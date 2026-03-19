@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:OpenAppHotkeys}",
+      "name": "Debug OpenAppHotkeys",
+      "target": "OpenAppHotkeys",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug OpenAppHotkeys"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:OpenAppHotkeys}",
+      "name": "Release OpenAppHotkeys",
+      "target": "OpenAppHotkeys",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release OpenAppHotkeys"
+    }
+  ]
+}
