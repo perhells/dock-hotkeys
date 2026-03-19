@@ -10,6 +10,9 @@ final class DockWatcher {
     /// times in quick succession when apps are rearranged.
     private static let debounceInterval: DispatchTimeInterval = .seconds(1)
 
+    /// Called after a successful reload with the new dock apps and hotkeys.
+    var onReload: (([DockApp], [Hotkey]) -> Void)?
+
     init(matcher: HotkeyMatcher) {
         self.matcher = matcher
     }
@@ -55,6 +58,7 @@ final class DockWatcher {
             let dockApps = try readDockApps()
             let hotkeys = buildHotkeys(from: dockApps)
             matcher.updateHotkeys(hotkeys)
+            onReload?(dockApps, hotkeys)
 
             print("Dock changed — reloaded \(hotkeys.count) hotkey(s):")
             let keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
