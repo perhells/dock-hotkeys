@@ -1,5 +1,14 @@
 import Foundation
 
+/// Build Ctrl+1..0 hotkeys from the first 10 Dock apps.
+func buildHotkeys(from dockApps: [DockApp]) -> [Hotkey] {
+    let keys: [String] = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+    return zip(keys, dockApps.prefix(10)).compactMap { key, app in
+        guard let keyCode = keyNameToCode[key] else { return nil }
+        return Hotkey(keyCode: keyCode, modifiers: .maskControl, app: app.bundleIdentifier)
+    }
+}
+
 // 1. Check Accessibility permissions
 if !checkAccessibility(prompt: true) {
     fputs("Accessibility permission is required.\n", stderr)
@@ -17,17 +26,13 @@ do {
     exit(1)
 }
 
-let keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
-let hotkeys: [Hotkey] = zip(keys, dockApps.prefix(10)).compactMap { key, app in
-    guard let keyCode = keyNameToCode[key] else { return nil }
-    return Hotkey(keyCode: keyCode, modifiers: .maskControl, app: app.bundleIdentifier)
-}
+let hotkeys = buildHotkeys(from: dockApps)
 
+let keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
 print("Loaded \(hotkeys.count) hotkey(s) from Dock:")
 for (i, hk) in hotkeys.enumerated() {
     let label = dockApps[i].label
-    let keyLabel = keys[i] == "0" ? "0" : keys[i]
-    print("  Ctrl+\(keyLabel) → \(label) (\(hk.app))")
+    print("  Ctrl+\(keys[i]) → \(label) (\(hk.app))")
 }
 
 // 3. Build components
@@ -44,7 +49,11 @@ do {
 }
 print("Event tap active. Listening for hotkeys...")
 
-// 5. Handle SIGTERM and SIGINT for clean shutdown
+// 5. Watch the Dock for changes and reload hotkeys automatically
+let dockWatcher = DockWatcher(matcher: matcher)
+dockWatcher.start()
+
+// 6. Handle SIGTERM and SIGINT for clean shutdown
 signal(SIGTERM, SIG_IGN)
 signal(SIGINT, SIG_IGN)
 
@@ -62,5 +71,5 @@ sigIntSource.setEventHandler {
 }
 sigIntSource.resume()
 
-// 6. Run the main run loop (required for CGEvent tap to receive events)
+// 7. Run the main run loop (required for CGEvent tap and FSEvents to receive events)
 CFRunLoopRun()

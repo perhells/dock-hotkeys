@@ -7,7 +7,7 @@ struct Hotkey {
 }
 
 final class HotkeyMatcher {
-    private let hotkeys: [Hotkey]
+    private var hotkeys: [Hotkey]
 
     /// Modifier flags we compare against. Other bits in CGEventFlags
     /// (e.g. maskNumericPad, maskNonCoalesced) are ignored.
@@ -17,6 +17,11 @@ final class HotkeyMatcher {
 
     init(hotkeys: [Hotkey]) {
         self.hotkeys = hotkeys
+    }
+
+    /// Replaces the current hotkeys with a new set.
+    func updateHotkeys(_ newHotkeys: [Hotkey]) {
+        hotkeys = newHotkeys
     }
 
     /// Returns the app identifier if the key event matches a configured hotkey.
