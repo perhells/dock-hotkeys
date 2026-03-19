@@ -57,28 +57,36 @@ struct LoginItemManager {
         let dest = launchAgentURL
         guard FileManager.default.fileExists(atPath: dest.path) else { return }
 
-        // Unload the agent
+        // Unload the agent and remove the plist so the agent won't start on next login.
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         task.arguments = ["unload", dest.path]
         try? task.run()
         task.waitUntilExit()
 
-        // Remove the plist
         try? FileManager.default.removeItem(at: dest)
     }
 
     private static func bundledPlistURL() -> URL? {
-        // Look relative to the executable
         let execURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-        let repoRoot = execURL
-            .deletingLastPathComponent() // bin dir or .build/debug
-            .deletingLastPathComponent() // .build or parent
-            .deletingLastPathComponent() // repo root (from .build/debug)
 
+        // Candidates relative to the executable location:
+        // 1. App bundle: .app/Contents/MacOS/Exe -> .app/Contents/Resources/LaunchAgents/
+        // 2. SPM .build/debug or .build/release -> repo root/LaunchAgents/
+        // 3. Sibling directory
         let candidates = [
-            repoRoot.appendingPathComponent("LaunchAgents/\(plistName)"),
-            execURL.deletingLastPathComponent().appendingPathComponent("LaunchAgents/\(plistName)"),
+            // Inside an app bundle (Contents/MacOS -> Contents/Resources)
+            execURL.deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Resources/LaunchAgents/\(plistName)"),
+            // SPM build: .build/release/Exe -> repo/LaunchAgents/
+            execURL.deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("LaunchAgents/\(plistName)"),
+            // Sibling directory
+            execURL.deletingLastPathComponent()
+                .appendingPathComponent("LaunchAgents/\(plistName)"),
         ]
 
         for url in candidates {
@@ -108,9 +116,6 @@ struct LoginItemManager {
             </array>
 
             <key>RunAtLoad</key>
-            <true/>
-
-            <key>KeepAlive</key>
             <true/>
 
             <key>StandardOutPath</key>

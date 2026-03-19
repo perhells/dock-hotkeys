@@ -37,7 +37,7 @@ A keyboard icon (⌨) appears in the menu bar with a list of your current hotkey
 
 ## Install
 
-An install script is provided that builds the binary, installs it to `/usr/local/bin`, and registers a LaunchAgent so it starts automatically on login:
+An install script is provided that builds the binary, creates an app bundle in `~/Applications`, and registers a LaunchAgent so it starts automatically on login:
 
 ```bash
 ./scripts/install.sh
@@ -46,17 +46,19 @@ An install script is provided that builds the binary, installs it to `/usr/local
 This will:
 
 1. Build a release binary
-2. Copy it to `/usr/local/bin/openapphotkeys` (requires sudo)
+2. Create an app bundle at `~/Applications/OpenAppHotkeys.app`
 3. Install a LaunchAgent to `~/Library/LaunchAgents/`
 4. Load the agent so it starts immediately
 
-### Uninstall
+No `sudo` required — everything is installed in user-local directories.
+
+## Uninstall
 
 ```bash
-launchctl bootout gui/$(id -u)/com.perhellstrom.openapphotkeys
-rm ~/Library/LaunchAgents/com.perhellstrom.openapphotkeys.plist
-sudo rm /usr/local/bin/openapphotkeys
+./scripts/uninstall.sh
 ```
+
+This will stop the running agent, remove the LaunchAgent plist, and delete the app bundle.
 
 ## Hotkeys
 

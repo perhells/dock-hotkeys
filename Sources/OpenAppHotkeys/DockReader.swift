@@ -20,13 +20,12 @@ enum DockReaderError: Error, CustomStringConvertible {
 }
 
 func readDockApps() throws -> [DockApp] {
-    let plistPath = NSHomeDirectory() + "/Library/Preferences/com.apple.dock.plist"
-
-    guard let dock = NSDictionary(contentsOfFile: plistPath) else {
+    guard let dockDefaults = UserDefaults(suiteName: "com.apple.dock") else {
         throw DockReaderError.plistNotFound
     }
 
-    guard let persistentApps = dock["persistent-apps"] as? [[String: Any]], !persistentApps.isEmpty else {
+    guard let persistentApps = dockDefaults.array(forKey: "persistent-apps") as? [[String: Any]],
+          !persistentApps.isEmpty else {
         throw DockReaderError.noPersistentApps
     }
 
