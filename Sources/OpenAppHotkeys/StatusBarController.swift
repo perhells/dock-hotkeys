@@ -20,6 +20,7 @@ final class StatusBarController: NSObject {
     }
 
     func update(dockApps: [DockApp], hotkeys: [Hotkey]) {
+        dispatchPrecondition(condition: .onQueue(.main))
         self.dockApps = dockApps
         self.hotkeys = hotkeys
         rebuildMenu()

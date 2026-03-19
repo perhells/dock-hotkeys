@@ -1,6 +1,17 @@
 import CoreServices
 import Foundation
 
+enum DockWatcherError: Error, CustomStringConvertible {
+    case streamCreationFailed
+
+    var description: String {
+        switch self {
+        case .streamCreationFailed:
+            return "Could not create FSEvent stream for Dock monitoring."
+        }
+    }
+}
+
 final class DockWatcher {
     private let matcher: HotkeyMatcher
     private var stream: FSEventStreamRef?
@@ -17,7 +28,22 @@ final class DockWatcher {
         self.matcher = matcher
     }
 
-    func start() {
+    func stop() {
+        debounceWork?.cancel()
+        debounceWork = nil
+        if let stream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            self.stream = nil
+        }
+    }
+
+    deinit {
+        stop()
+    }
+
+    func start() throws {
         let dockPlistDir = (NSHomeDirectory() + "/Library/Preferences") as CFString
         let pathsToWatch = [dockPlistDir] as CFArray
 
@@ -33,8 +59,7 @@ final class DockWatcher {
             0, // latency — we handle debouncing ourselves
             UInt32(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
         ) else {
-            fputs("Warning: Could not create FSEvent stream for Dock monitoring.\n", stderr)
-            return
+            throw DockWatcherError.streamCreationFailed
         }
 
         self.stream = stream
@@ -60,9 +85,10 @@ final class DockWatcher {
             matcher.updateHotkeys(hotkeys)
             onReload?(dockApps, hotkeys)
 
-            print("Dock changed — reloaded \(hotkeys.count) hotkey(s):")
             let keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+            print("Dock changed — reloaded \(hotkeys.count) hotkey(s):")
             for (i, hk) in hotkeys.enumerated() {
+                guard i < dockApps.count else { break }
                 let label = dockApps[i].label
                 print("  Ctrl+\(keys[i]) → \(label) (\(hk.app))")
             }
@@ -84,7 +110,8 @@ private func fsEventCallback(
     guard let clientInfo else { return }
     let watcher = Unmanaged<DockWatcher>.fromOpaque(clientInfo).takeUnretainedValue()
 
-    let paths = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue() as! [String]
+    let cfArray = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue()
+    guard let paths = cfArray as? [String] else { return }
     for path in paths {
         if path.hasSuffix("com.apple.dock.plist") {
             watcher.handleDockChange()

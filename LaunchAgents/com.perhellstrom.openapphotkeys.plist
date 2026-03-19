@@ -15,9 +15,9 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/tmp/openapphotkeys.stdout.log</string>
+    <string>REPLACE_HOME/Library/Logs/openapphotkeys.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/tmp/openapphotkeys.stderr.log</string>
+    <string>REPLACE_HOME/Library/Logs/openapphotkeys.log</string>
 </dict>
 </plist>

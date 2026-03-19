@@ -9,106 +9,108 @@ struct LoginItemManager {
         return home.appendingPathComponent("Library/LaunchAgents/\(plistName)")
     }
 
+    private static var logDir: URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home.appendingPathComponent("Library/Logs")
+    }
+
     /// Returns true if the LaunchAgent plist exists in ~/Library/LaunchAgents.
     static func isEnabled() -> Bool {
         FileManager.default.fileExists(atPath: launchAgentURL.path)
     }
 
-    static func setEnabled(_ enabled: Bool) {
+    @discardableResult
+    static func setEnabled(_ enabled: Bool) -> Bool {
         if enabled {
-            install()
+            return install()
         } else {
-            uninstall()
+            return uninstall()
         }
     }
 
-    private static func install() {
-        // Find the plist bundled alongside the executable
-        let bundledPlist = bundledPlistURL()
-        guard let source = bundledPlist else {
-            fputs("Warning: Could not find LaunchAgent plist to install.\n", stderr)
-            return
-        }
-
+    @discardableResult
+    private static func install() -> Bool {
         let dest = launchAgentURL
 
         // Ensure ~/Library/LaunchAgents exists
         let dir = dest.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-
-        // Copy plist
-        try? FileManager.default.removeItem(at: dest)
         do {
-            try FileManager.default.copyItem(at: source, to: dest)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         } catch {
-            fputs("Warning: Could not copy LaunchAgent plist: \(error.localizedDescription)\n", stderr)
-            return
+            fputs("Error: Could not create LaunchAgents directory: \(error.localizedDescription)\n", stderr)
+            return false
         }
 
-        // Load the agent
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        task.arguments = ["load", dest.path]
-        try? task.run()
-        task.waitUntilExit()
+        // Always generate the plist with correct paths for this executable
+        do {
+            try generatePlistContent().write(to: dest, atomically: true, encoding: .utf8)
+        } catch {
+            fputs("Error: Could not write LaunchAgent plist: \(error.localizedDescription)\n", stderr)
+            return false
+        }
+
+        // Load the agent (runs asynchronously to avoid blocking the main thread)
+        launchctl(["bootstrap", "gui/\(getuid())", dest.path])
+        return true
     }
 
-    private static func uninstall() {
+    @discardableResult
+    private static func uninstall() -> Bool {
         let dest = launchAgentURL
-        guard FileManager.default.fileExists(atPath: dest.path) else { return }
+        guard FileManager.default.fileExists(atPath: dest.path) else { return true }
 
-        // Unload the agent and remove the plist so the agent won't start on next login.
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        task.arguments = ["unload", dest.path]
-        try? task.run()
-        task.waitUntilExit()
+        // Unload the agent
+        launchctl(["bootout", "gui/\(getuid())/\(label)"])
 
-        try? FileManager.default.removeItem(at: dest)
+        // Remove the plist so the agent won't start on next login
+        do {
+            try FileManager.default.removeItem(at: dest)
+        } catch {
+            fputs("Error: Could not remove LaunchAgent plist: \(error.localizedDescription)\n", stderr)
+            return false
+        }
+        return true
     }
 
-    private static func bundledPlistURL() -> URL? {
-        let execURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-
-        // Candidates relative to the executable location:
-        // 1. App bundle: .app/Contents/MacOS/Exe -> .app/Contents/Resources/LaunchAgents/
-        // 2. SPM .build/debug or .build/release -> repo root/LaunchAgents/
-        // 3. Sibling directory
-        let candidates = [
-            // Inside an app bundle (Contents/MacOS -> Contents/Resources)
-            execURL.deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Resources/LaunchAgents/\(plistName)"),
-            // SPM build: .build/release/Exe -> repo/LaunchAgents/
-            execURL.deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("LaunchAgents/\(plistName)"),
-            // Sibling directory
-            execURL.deletingLastPathComponent()
-                .appendingPathComponent("LaunchAgents/\(plistName)"),
-        ]
-
-        for url in candidates {
-            if FileManager.default.fileExists(atPath: url.path) {
-                return url
+    /// Runs a launchctl command asynchronously to avoid blocking the main thread.
+    private static func launchctl(_ arguments: [String]) {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        task.arguments = arguments
+        task.terminationHandler = { process in
+            if process.terminationStatus != 0 {
+                fputs("Warning: launchctl \(arguments.first ?? "") exited with status \(process.terminationStatus)\n", stderr)
             }
         }
-
-        // Fallback: generate a plist in-memory and write to temp
-        return generatePlist()
+        do {
+            try task.run()
+        } catch {
+            fputs("Error: Failed to run launchctl: \(error.localizedDescription)\n", stderr)
+        }
     }
 
-    private static func generatePlist() -> URL? {
-        let execPath = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().path
-        let plist = """
+    private static func escapeXML(_ string: String) -> String {
+        string
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&apos;")
+    }
+
+    private static func generatePlistContent() -> String {
+        let execPath = escapeXML(
+            URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().path
+        )
+        let logPath = escapeXML(logDir.appendingPathComponent("openapphotkeys.log").path)
+        return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
           "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
         <dict>
             <key>Label</key>
-            <string>\(label)</string>
+            <string>\(escapeXML(label))</string>
 
             <key>ProgramArguments</key>
             <array>
@@ -119,19 +121,12 @@ struct LoginItemManager {
             <true/>
 
             <key>StandardOutPath</key>
-            <string>/tmp/openapphotkeys.stdout.log</string>
+            <string>\(logPath)</string>
 
             <key>StandardErrorPath</key>
-            <string>/tmp/openapphotkeys.stderr.log</string>
+            <string>\(logPath)</string>
         </dict>
         </plist>
         """
-        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(plistName)
-        do {
-            try plist.write(to: tmpURL, atomically: true, encoding: .utf8)
-            return tmpURL
-        } catch {
-            return nil
-        }
     }
 }

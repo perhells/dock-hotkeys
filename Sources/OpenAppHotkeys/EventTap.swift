@@ -17,6 +17,7 @@ final class EventTapManager {
     let launcher: AppLauncher
     private var machPort: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var healthTimer: DispatchSourceTimer?
 
     init(matcher: HotkeyMatcher, launcher: AppLauncher) {
         self.matcher = matcher
@@ -42,6 +43,52 @@ final class EventTapManager {
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+
+        startHealthTimer()
+    }
+
+    func stop() {
+        stopHealthTimer()
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+            runLoopSource = nil
+        }
+        if let port = machPort {
+            CGEvent.tapEnable(tap: port, enable: false)
+            CFMachPortInvalidate(port)
+            machPort = nil
+        }
+    }
+
+    /// Periodically checks that the event tap is still enabled and that
+    /// Accessibility permission hasn't been revoked.
+    private func startHealthTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 5, repeating: 5)
+        timer.setEventHandler { [weak self] in
+            self?.checkHealth()
+        }
+        timer.resume()
+        healthTimer = timer
+    }
+
+    private func stopHealthTimer() {
+        healthTimer?.cancel()
+        healthTimer = nil
+    }
+
+    private func checkHealth() {
+        guard let port = machPort else { return }
+
+        if !checkAccessibility(prompt: false) {
+            fputs("Accessibility permission was revoked. Hotkeys are disabled.\n", stderr)
+            return
+        }
+
+        if !CGEvent.tapIsEnabled(tap: port) {
+            fputs("Event tap was disabled, re-enabling...\n", stderr)
+            CGEvent.tapEnable(tap: port, enable: true)
+        }
     }
 
     /// Re-enables the tap after macOS disables it due to timeout.
@@ -49,6 +96,10 @@ final class EventTapManager {
         if let port = machPort {
             CGEvent.tapEnable(tap: port, enable: true)
         }
+    }
+
+    deinit {
+        stop()
     }
 }
 
@@ -67,7 +118,6 @@ private func eventTapCallback(
 
     // Handle tap being disabled by the system
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-        fputs("Event tap was disabled, re-enabling...\n", stderr)
         manager.reenable()
         return Unmanaged.passUnretained(event)
     }

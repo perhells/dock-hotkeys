@@ -7,6 +7,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var sigTermSource: DispatchSourceSignal?
     private var sigIntSource: DispatchSourceSignal?
 
+    func applicationWillTerminate(_ notification: Notification) {
+        dockWatcher?.stop()
+        tapManager?.stop()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
@@ -44,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
         print("Loaded \(hotkeys.count) hotkey(s) from Dock:")
         for (i, hk) in hotkeys.enumerated() {
+            guard i < dockApps.count else { break }
             let label = dockApps[i].label
             print("  Ctrl+\(keys[i]) → \(label) (\(hk.app))")
         }
@@ -73,7 +79,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watcher.onReload = { [weak bar] newDockApps, newHotkeys in
             bar?.update(dockApps: newDockApps, hotkeys: newHotkeys)
         }
-        watcher.start()
+        do {
+            try watcher.start()
+        } catch {
+            fputs("Warning: \(error) — Dock changes won't be detected.\n", stderr)
+        }
         self.dockWatcher = watcher
 
         // 7. Handle SIGTERM and SIGINT
